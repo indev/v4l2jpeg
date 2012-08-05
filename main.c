@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <getopt.h>
+#include <time.h>
 
 #include <sys/stat.h>
 #include <sys/mman.h>
@@ -35,8 +36,13 @@ static int fd = -1;
 static unsigned int num_buffers;
 static enum io_method io = IO_METHOD_MMAP;
 
+/** settings **/
 static int v_width = 160;
 static int v_height = 120;
+static int num_frames = -1;
+static int framerate = 25;
+
+
 
 void errno_exit(const char *err)
 {
@@ -339,7 +345,7 @@ void process_image(const void *p, int size) {
   if ( jpg == NULL )
     errno_exit("mjpeg2jpeg");
 
-  //printf("process_image: %d -> %d\n", size, jpgSize);
+  printf("process_image: %d -> %d\n", size, jpgSize);
 
   char filename[40];
   sprintf(filename, "files/dump_%d.jpg", current_image_index++);
@@ -347,6 +353,8 @@ void process_image(const void *p, int size) {
   FILE *fp = fopen(filename, "wb");
   fwrite( jpg, (int)jpgSize, 1, fp);
   fclose(fp);
+
+  free(jpg);
 }
 
 int read_frame()
@@ -400,47 +408,75 @@ int read_frame()
   return 1;
 }
 
+void capture_frame_loop()
+{
+
+  for (;;) {
+    fd_set fds;
+    struct timeval tv;
+    int r;
+
+    FD_ZERO(&fds);
+    FD_SET(fd,&fds);
+
+    tv.tv_sec = 1;
+    tv.tv_usec = 0;
+
+    r = select( fd+1, &fds, NULL, NULL, &tv );
+
+    if ( r == -1 ) {
+      if (errno == EINTR)
+	continue;
+
+      errno_exit("select");
+    }
+
+    if ( r == 0 ) {
+      fprintf(stderr,"select timeout\n");
+      //exit(EXIT_FAILURE);
+      continue;
+    }
+
+    if ( read_frame() )
+      break;
+  }
+}
+
+void fps_delay() 
+{
+  // stay here for a while, time depends on the framerate
+  clock_t start = clock();
+  float sec_delay = 1.0f / framerate;
+
+  while (1) {
+    clock_t now = clock();
+
+    if ( (now - start)/CLOCKS_PER_SEC > sec_delay )
+      break;
+  }
+}
+
 void capture_loop()
 {
   unsigned int counter;
-  unsigned int numTimeouts;
 
-  counter = 5;
-  numTimeouts = 0;
+  counter = num_frames;
 
-  while ( counter-- > 0 ) {
-    for (;;) {
-      fd_set fds;
-      struct timeval tv;
-      int r;
+  if ( counter == -1  ) {
+    // capture frams indefinetly
+    while( 1 ) {
+      //fps_delay();
 
-      FD_ZERO(&fds);
-      FD_SET(fd,&fds);
+      capture_frame_loop();
+    }
+  }
+  else {
+    // only capture a specific number of frames
+    while ( counter-- > 0 ) {
+      //fps_delay();
 
-      tv.tv_sec = 1;
-      tv.tv_usec = 0;
-
-      r = select( fd+1, &fds, NULL, NULL, &tv );
-
-      if ( r == -1 ) {
-	if (errno == EINTR)
-	  continue;
-
-	errno_exit("select");
-      }
-
-      if ( r == 0) {
-	if ( numTimeouts <= 0 ) {
-	  counter++;
-	}
-	else {
-	  fprintf(stderr,"select timeout\n");
-	  exit(EXIT_FAILURE);
-	}
-      }
-
-      if ( read_frame() )
- 	break;
+      capture_frame_loop();
+    
     }
   }
 }
@@ -454,6 +490,8 @@ static void usage(FILE *fp, int argc, char **argv)
 	  "-h | --help\n"
 	  "-W | --width px\n"
 	  "-H | --height px\n"
+	  "-c | --count x (num frames to capture, ignore for infinite)\n"
+	  "-f | --fps x"
 	  "",
 	  argv[0]);
 }
@@ -465,6 +503,8 @@ static const struct option long_options [] = {
   { "help", no_argument, NULL, 'h' },
   { "width", required_argument, NULL, 'W' },
   { "height", required_argument, NULL, 'H' },
+  { "count", required_argument, NULL, 'c' },
+  { "fps", required_argument, NULL, 'f' },
   { 0, 0, 0, 0 }
 };
 
@@ -493,6 +533,14 @@ int main(int argc, char **argv)
 
     case 'H':
       v_height = atoi(optarg);
+      break;
+
+    case 'c':
+      num_frames = atoi(optarg);
+      break;
+
+    case 'f':
+      framerate = atoi(optarg);
       break;
 
     default:

@@ -74,15 +74,11 @@ byte* mjpeg2jpeg( const byte *in, const unsigned int inSize, unsigned int *outSi
   memcpy( out + ptr, JPGDHTSeg, sizeof(JPGDHTSeg) );
   ptr += sizeof(JPGDHTSeg);
   
-  // remove the existing header
-  int tmp = *(in + 4);
-  tmp <<= 8;
-  tmp += *(in + 5) + 4;
-
-  tmp = 2;
+  // remove the existing header, which is a corrupt of of 0xffd8 0xffd8
+  int offset = 2;
 
   // write the data
-  memcpy( out + ptr, in + tmp, inSize-tmp );
+  memcpy( out + ptr, in + offset, inSize-offset );
 
   return out;
 }
