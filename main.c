@@ -25,23 +25,32 @@ enum io_method {
   IO_METHOD_USERPTR
 };
 
+enum output_method {
+  OUTPUT_STDOUT,
+  OUTPUT_FILE,
+  OUTPUT_CALLBACK
+};
+
 struct buffer {
   void *data;
   size_t length;
 };
 
 struct buffer *buffers = NULL;
-static char *device_name = "/dev/video0";
 static int fd = -1;
 static unsigned int num_buffers;
 static enum io_method io = IO_METHOD_MMAP;
+static enum output_method output = OUTPUT_FILE;
 
 /** settings **/
+static char *device_name = "/dev/video0";
 static int v_width = 160;
 static int v_height = 120;
 static int num_frames = -1;
 static int framerate = 25;
 
+unsigned int current_file_index = 0;
+static char output_file_pattern[] = "files/dump_%d.jpg";
 
 
 void errno_exit(const char *err)
@@ -231,8 +240,8 @@ void init_device()
   fmt.fmt.pix.height = v_height;
   fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
   
-  if ( xioctl(fd, VIDIOC_S_FMT, &fmt) == -1 ) 
-    errno_exit("VIDIOC_S_FMT");
+  //if ( xioctl(fd, VIDIOC_S_FMT, &fmt) == -1 ) 
+  //  errno_exit("VIDIOC_S_FMT");
 
   if ( fmt.fmt.pix.width != v_width ) {
     v_width = fmt.fmt.pix.width;
@@ -335,7 +344,47 @@ void stop_capturing()
   }
 }
 
-unsigned int current_image_index = 0;
+void output_data_stdout(const void *data, int size)
+{
+  FILE *fp = stdout;
+  fwrite(data, size, 1, fp);
+}
+
+void output_data_file(const void *data, int size)
+{
+  char *filename;
+  FILE *fp = NULL;
+
+  filename = malloc( sizeof(char) * 1024 );
+
+  snprintf(filename, 1024, output_file_pattern, current_file_index++);
+
+  fp = fopen(filename, "wb");
+  fwrite( data, size, 1, fp);
+  fclose(fp);
+
+  free(filename);
+}
+
+void output_data(const void *data, int size)
+{
+ 
+  switch( output )
+  {
+    case OUTPUT_STDOUT:
+      output_data_stdout(data, size);
+    break;
+
+    case OUTPUT_FILE:
+      output_data_file(data, size);
+    break;
+
+    case OUTPUT_CALLBACK:
+      errno_exit("OUTPUT_CALLBACK not supported");
+    break;
+  }
+}
+
 void process_image(const void *p, int size) {
   byte *jpg = NULL;
   unsigned int jpgSize = 0;
@@ -345,14 +394,8 @@ void process_image(const void *p, int size) {
   if ( jpg == NULL )
     errno_exit("mjpeg2jpeg");
 
-  printf("process_image: %d -> %d\n", size, jpgSize);
-
-  char filename[40];
-  sprintf(filename, "files/dump_%d.jpg", current_image_index++);
-
-  FILE *fp = fopen(filename, "wb");
-  fwrite( jpg, (int)jpgSize, 1, fp);
-  fclose(fp);
+  printf("process_image\n");
+  output_data(jpg, jpgSize);
 
   free(jpg);
 }
@@ -465,7 +508,7 @@ void capture_loop()
   if ( counter == -1  ) {
     // capture frams indefinetly
     while( 1 ) {
-      //fps_delay();
+      fps_delay();
 
       capture_frame_loop();
     }
@@ -473,7 +516,7 @@ void capture_loop()
   else {
     // only capture a specific number of frames
     while ( counter-- > 0 ) {
-      //fps_delay();
+      fps_delay();
 
       capture_frame_loop();
     
