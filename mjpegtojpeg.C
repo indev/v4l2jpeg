@@ -58,7 +58,7 @@ byte* mjpeg2jpeg( const byte *in, const unsigned int inSize, unsigned int *outSi
   size = (unsigned int)inSize + sizeof(jpgHdr) + sizeof(JPGDHTSeg);
 
   // allocate enough memory for the out buffer
-  out = malloc(size);
+  out = (byte*)malloc(size);
   if (!out) {
     printf("mjpeg2jpeg: out of memory\n");
     return NULL;

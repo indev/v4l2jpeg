@@ -1,5 +1,5 @@
 
-CC = gcc
+CC = g++
 
 BIN = v4l2jpeg
 
@@ -11,7 +11,7 @@ OBJ = main.o mjpegtojpeg.o
 	$(CC) -c -o $@ $< $(FLAGS)
 
 $(BIN): $(OBJ)
-	gcc -o $@ $^ $(FLAGS)
+	$(CC) -o $@ $^ $(FLAGS)
 
 .PHONY: clean
 

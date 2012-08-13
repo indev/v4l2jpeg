@@ -15,6 +15,7 @@
 
 #include <linux/videodev2.h>
 
+#include "v4l2jpeg.h"
 #include "mjpegtojpeg.h"
 
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
@@ -43,14 +44,16 @@ static enum io_method io = IO_METHOD_MMAP;
 static enum output_method output = OUTPUT_FILE;
 
 /** settings **/
-static char *device_name = "/dev/video0";
-static int v_width = 160;
-static int v_height = 120;
+static char device_name[] = "/dev/video0";
+static unsigned int v_width = 160;
+static unsigned int v_height = 120;
 static int num_frames = -1;
-static int framerate = 25;
+static int framerate = 5;
 
 unsigned int current_file_index = 0;
 static char output_file_pattern[] = "files/dump_%d.jpg";
+
+output_callback_func_ptr output_callback_ptr = NULL;
 
 
 void errno_exit(const char *err)
@@ -112,7 +115,7 @@ void device_close()
 
 void io_read_init(unsigned int buffer_size)
 {
-  buffers = calloc(1, sizeof(*buffers));
+  buffers = (struct buffer*)calloc(1, sizeof(*buffers));
 
   if ( !buffers ) {
     fprintf(stderr, "Out of memory\n");
@@ -154,7 +157,7 @@ void io_mmap_init()
     exit(EXIT_FAILURE);
   }
 
-  buffers = calloc(req.count, sizeof(*buffers));
+  buffers = (struct buffer*)calloc(req.count, sizeof(*buffers));
 
   if ( !buffers ) {
     fprintf(stderr, "Out of memory\n");
@@ -355,7 +358,7 @@ void output_data_file(const void *data, int size)
   char *filename;
   FILE *fp = NULL;
 
-  filename = malloc( sizeof(char) * 1024 );
+  filename = (char *)malloc( sizeof(char) * 1024 );
 
   snprintf(filename, 1024, output_file_pattern, current_file_index++);
 
@@ -364,6 +367,13 @@ void output_data_file(const void *data, int size)
   fclose(fp);
 
   free(filename);
+}
+
+void output_callback(const void *data, int size)
+{
+  if ( output_callback_ptr != NULL ) {
+    (*output_callback_ptr)(data, size);
+  }
 }
 
 void output_data(const void *data, int size)
@@ -380,7 +390,7 @@ void output_data(const void *data, int size)
     break;
 
     case OUTPUT_CALLBACK:
-      errno_exit("OUTPUT_CALLBACK not supported");
+      output_callback(data, size);
     break;
   }
 }
@@ -389,7 +399,7 @@ void process_image(const void *p, int size) {
   byte *jpg = NULL;
   unsigned int jpgSize = 0;
 
-  jpg = mjpeg2jpeg(p, size, &jpgSize);
+  jpg = mjpeg2jpeg((const byte*)p, size, &jpgSize);
 
   if ( jpg == NULL )
     errno_exit("mjpeg2jpeg");
@@ -487,6 +497,11 @@ void capture_frame_loop()
 
 void fps_delay() 
 {
+
+  float sec_delay = 1.0f / framerate;
+  sleep(sec_delay);
+
+  /*
   // stay here for a while, time depends on the framerate
   clock_t start = clock();
   float sec_delay = 1.0f / framerate;
@@ -497,11 +512,12 @@ void fps_delay()
     if ( (now - start)/CLOCKS_PER_SEC > sec_delay )
       break;
   }
+  */
 }
 
 void capture_loop()
 {
-  unsigned int counter;
+  int counter;
 
   counter = num_frames;
 
@@ -524,19 +540,43 @@ void capture_loop()
   }
 }
 
+
+#ifdef OUTPUT_INTERNAL
+
+int internal_main( output_callback_func_ptr callback_ptr )
+{
+  output = OUTPUT_CALLBACK;
+
+  output_callback_ptr = callback_ptr;
+
+  device_open();
+  init_device();
+  start_capturing();
+ 
+  capture_loop();
+ 
+  stop_capturing();
+  uninit_device();
+  device_close();
+
+  return 0;
+}
+
+#else
+
 static void usage(FILE *fp, int argc, char **argv)
 {
   fprintf(fp, 
-	  "Usage: %s [options]\n\n"
-	  "Options:\n"
-	  "-d | --device name\n"
-	  "-h | --help\n"
-	  "-W | --width px\n"
-	  "-H | --height px\n"
-	  "-c | --count x (num frames to capture, ignore for infinite)\n"
-	  "-f | --fps x"
-	  "",
-	  argv[0]);
+    "Usage: %s [options]\n\n"
+    "Options:\n"
+    "-d | --device name\n"
+    "-h | --help\n"
+    "-W | --width px\n"
+    "-H | --height px\n"
+    "-c | --count x (num frames to capture, ignore for infinite)\n"
+    "-f | --fps x"
+    "",
+    argv[0]);
 }
 
 static const char short_options [] = "d:hW:H:";
@@ -567,7 +607,7 @@ int main(int argc, char **argv)
       break;
 
     case 'd':
-      device_name = optarg;
+     // device_name = optarg;
       break;
 
     case 'W':
@@ -611,3 +651,4 @@ int main(int argc, char **argv)
 
   return 0;
 }
+#endif
