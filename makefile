@@ -1,5 +1,5 @@
 
-CC = g++
+CC = gcc
 
 BIN = v4l2jpeg
 
