@@ -44,14 +44,14 @@ static enum io_method io = IO_METHOD_MMAP;
 static enum output_method output = OUTPUT_FILE;
 
 /** settings **/
-static char device_name[] = "/dev/video0";
+static char *device_name;
 static unsigned int v_width = 160;
 static unsigned int v_height = 120;
 static int num_frames = -1;
-static int framerate = 5;
+static int framerate = 2;
 
 unsigned int current_file_index = 0;
-static char output_file_pattern[] = "files/dump_%d.jpg";
+static char *output_file_pattern;
 
 output_callback_func_ptr output_callback_ptr = NULL;
 
@@ -233,9 +233,6 @@ void init_device()
   if ( fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_MJPEG ) {
     fprintf(stderr, "Not using MJPEG as data format\n");
   }
-  else
-    printf("Using MJPEG, before\n");
-
 
   // try to change the format
   fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -243,8 +240,8 @@ void init_device()
   fmt.fmt.pix.height = v_height;
   fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
   
-  //if ( xioctl(fd, VIDIOC_S_FMT, &fmt) == -1 ) 
-  //  errno_exit("VIDIOC_S_FMT");
+  if ( xioctl(fd, VIDIOC_S_FMT, &fmt) == -1 ) 
+    errno_exit("VIDIOC_S_FMT");
 
   if ( fmt.fmt.pix.width != v_width ) {
     v_width = fmt.fmt.pix.width;
@@ -257,13 +254,10 @@ void init_device()
   }
 
 
-    if ( fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_MJPEG ) {
-    fprintf(stderr, "Not using MJPEG as data format\n");
+  if ( fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_MJPEG ) {
+    errno_exit("VIDIOC_S_FMT: Unable to set V4L2_PIX_FMT_MJPEG");
   }
-    else
-      printf("Using MJPEG, after\n");
-
-
+  
   switch(io) {
   case IO_METHOD_READ:
     io_read_init(fmt.fmt.pix.sizeimage);
@@ -289,7 +283,7 @@ void uninit_device()
   case IO_METHOD_MMAP:
     for (i=0; i<num_buffers; ++i) {
       if ( munmap(buffers[i].data, buffers[i].length) == -1 )
-	errno_exit("munmap");
+        errno_exit("munmap");
     }
     break;
 
@@ -317,7 +311,7 @@ void start_capturing()
       buf.index = i;
 
       if ( xioctl(fd,VIDIOC_QBUF,&buf) == -1 ) {
-	errno_exit("VIDIOC_QBUF");
+        errno_exit("VIDIOC_QBUF");
       }
     }
     
@@ -404,7 +398,7 @@ void process_image(const void *p, int size) {
   if ( jpg == NULL )
     errno_exit("mjpeg2jpeg");
 
-  printf("process_image\n");
+  printf("process_image %d\n", jpgSize);
   output_data(jpg, jpgSize);
 
   free(jpg);
@@ -419,10 +413,10 @@ int read_frame()
     if ( read(fd, buffers[0].data, buffers[0].length) == -1 ) {
       switch(errno) {
       case EAGAIN:
-	return 0;
+        return 0;
       case EIO:
       default:
-	errno_exit("read");
+        errno_exit("read");
       }
     }
 
@@ -438,10 +432,10 @@ int read_frame()
     if ( xioctl(fd, VIDIOC_DQBUF, &buf) == -1) {
       switch(errno) {
       case EAGAIN:
-	return 0;
+        return 0;
       case EIO:
       default:
-	errno_exit("VIDIOC_DQBUF");
+        errno_exit("VIDIOC_DQBUF");
       }
     }
 
@@ -479,7 +473,7 @@ void capture_frame_loop()
 
     if ( r == -1 ) {
       if (errno == EINTR)
-	continue;
+        continue;
 
       errno_exit("select");
     }
@@ -497,22 +491,9 @@ void capture_frame_loop()
 
 void fps_delay() 
 {
-
-  float sec_delay = 1.0f / framerate;
-  sleep(sec_delay);
-
-  /*
-  // stay here for a while, time depends on the framerate
-  clock_t start = clock();
-  float sec_delay = 1.0f / framerate;
-
-  while (1) {
-    clock_t now = clock();
-
-    if ( (now - start)/CLOCKS_PER_SEC > sec_delay )
-      break;
-  }
-  */
+  float ms_delay = (1.0f / framerate) * 1000000 ;
+  
+  usleep(ms_delay);
 }
 
 void capture_loop()
@@ -540,6 +521,16 @@ void capture_loop()
   }
 }
 
+void init_defaults()
+{
+  device_name = (char*)malloc( strlen("/dev/video0") * sizeof(char) ) ;
+  strcpy( device_name, "/dev/video0");
+
+
+  output_file_pattern = (char*)malloc( strlen("files/dump_%d.jpg") * sizeof(char) ) ;
+  strcpy( output_file_pattern, "files/dump_%d.jpg");
+ 
+}
 
 #ifdef OUTPUT_INTERNAL
 
@@ -593,6 +584,7 @@ static const struct option long_options [] = {
 
 int main(int argc, char **argv)
 {
+  init_defaults();
 
   while (1) {
     int index, c = 0;
@@ -607,7 +599,8 @@ int main(int argc, char **argv)
       break;
 
     case 'd':
-     // device_name = optarg;
+      free(device_name);
+      device_name = optarg;
       break;
 
     case 'W':
