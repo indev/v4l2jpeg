@@ -14,6 +14,10 @@ $(BIN): $(OBJ)
 	$(CC) -o $@ $^ $(FLAGS)
 
 .PHONY: clean
+.PHONY: install
 
 clean:
 	rm -f $(OBJ)
+
+install:
+	mv $(BIN) /usr/local/bin

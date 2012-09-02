@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <getopt.h>
 #include <time.h>
+#include <stdbool.h>
 
 #include <sys/stat.h>
 #include <sys/mman.h>
@@ -53,6 +54,8 @@ static int framerate = 2;
 unsigned int current_file_index = 0;
 static char *output_file_pattern;
 
+bool use_jpeg_header_boundry = false;
+
 output_callback_func_ptr output_callback_ptr = NULL;
 
 
@@ -77,7 +80,7 @@ void device_open()
 {
   struct stat st;
 
-  printf("Try to open device %s\n", device_name);
+  fprintf(stderr, "Try to open device %s\n", device_name);
 
   // get the info 
   if ( stat(device_name, &st) == -1  ) {
@@ -99,7 +102,7 @@ void device_open()
      exit(EXIT_FAILURE);
   }
 
-  printf("Device open\n");
+  fprintf(stderr, "Device open\n");
 }
 
 void device_close()
@@ -110,7 +113,7 @@ void device_close()
   }
 
   fd = -1;
-  printf("Device closed\n");
+  fprintf(stderr, "Device closed\n");
 }
 
 void io_read_init(unsigned int buffer_size)
@@ -184,7 +187,7 @@ void io_mmap_init()
       errno_exit("mmap");
   }
 
-  printf("Mapped %d buffers\n", num_buffers);
+  fprintf(stderr, "Mapped %d buffers\n", num_buffers);
 }
 
 void init_device()
@@ -344,7 +347,20 @@ void stop_capturing()
 void output_data_stdout(const void *data, int size)
 {
   FILE *fp = stdout;
+
+  char jpegHeader[256];
+  char jpegBoundry[] = "\n--v4l2jpegboundry\n";
+
+  snprintf( jpegHeader, sizeof(char) * 256, "Content-Type: image/jpeg\n Content-Length: %d\n\n", size );
+  
+  if (use_jpeg_header_boundry)
+    fwrite(jpegHeader, sizeof(char), sizeof(jpegHeader), fp);
+
   fwrite(data, size, 1, fp);
+
+  if (use_jpeg_header_boundry)
+    fwrite(jpegBoundry, sizeof(char), sizeof(jpegBoundry), fp);
+
 }
 
 void output_data_file(const void *data, int size)
@@ -398,7 +414,7 @@ void process_image(const void *p, int size) {
   if ( jpg == NULL )
     errno_exit("mjpeg2jpeg");
 
-  printf("process_image %d\n", jpgSize);
+  fprintf(stderr, "process_image %d\n", jpgSize);
   output_data(jpg, jpgSize);
 
   free(jpg);
@@ -565,12 +581,14 @@ static void usage(FILE *fp, int argc, char **argv)
     "-W | --width px\n"
     "-H | --height px\n"
     "-c | --count x (num frames to capture, ignore for infinite)\n"
-    "-f | --fps x"
+    "-f | --fps x\n"
+    "-o | --output to stdout\n"
+    "-j | --insert a jpeg header and boundry when outputting to stdout\n"
     "",
     argv[0]);
 }
 
-static const char short_options [] = "d:hW:H:";
+static const char short_options [] = "d:h:W:H:c:f:j";
 
 static const struct option long_options [] = {
   { "device", required_argument, NULL, 'd' },
@@ -579,6 +597,8 @@ static const struct option long_options [] = {
   { "height", required_argument, NULL, 'H' },
   { "count", required_argument, NULL, 'c' },
   { "fps", required_argument, NULL, 'f' },
+  { "jpeg", no_argument, NULL, 'j' },
+  { "stdout", no_argument, NULL, 'o' },
   { 0, 0, 0, 0 }
 };
 
@@ -618,6 +638,14 @@ int main(int argc, char **argv)
     case 'f':
       framerate = atoi(optarg);
       break;
+
+    case 'j':
+      use_jpeg_header_boundry = true;
+    break;
+
+    case 'o':
+      output = OUTPUT_STDOUT;
+    break;
 
     default:
       usage(stderr, argc, argv);
