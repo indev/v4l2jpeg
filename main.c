@@ -354,12 +354,12 @@ void output_data_stdout(const void *data, int size)
   snprintf( jpegHeader, sizeof(char) * 256, "Content-Type: image/jpeg\n Content-Length: %d\n\n", size );
   
   if (use_jpeg_header_boundry)
-    fwrite(jpegHeader, sizeof(char), sizeof(jpegHeader), fp);
+    fwrite(jpegHeader, sizeof(char), strlen(jpegHeader), fp);
 
   fwrite(data, size, 1, fp);
 
   if (use_jpeg_header_boundry)
-    fwrite(jpegBoundry, sizeof(char), sizeof(jpegBoundry), fp);
+    fwrite(jpegBoundry, sizeof(char), strlen(jpegBoundry), fp);
 
 }
 
